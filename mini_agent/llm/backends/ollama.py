@@ -1,0 +1,66 @@
+"""Ollama backend"""
+import httpx
+from .. import retry
+from ..base import BaseLLM, LLMError, LLMResponse
+
+
+class OllamaLLM(BaseLLM):
+    """Local Ollama LLM"""
+
+    def __init__(
+        self,
+        model: str = "qwen3:8b",
+        host: str = "http://localhost:11434",
+        timeout: int = 60,
+        context_limit: int = 32_000  # locally configurable, default 32K
+    ):
+        self.model = model
+        self.base_url = host
+        self.timeout = timeout
+        self.total_prompt_tokens = 0
+        self.total_completion_tokens = 0
+        self.context_limit = context_limit
+
+    def _request(self, prompt: str) -> dict:
+        """The response data, or {"error": LLMError} when the call failed"""
+        try:
+            resp = retry.send(lambda: httpx.post(
+                f"{self.base_url}/api/generate",
+                json={"model": self.model, "prompt": prompt, "stream": False},
+                timeout=self.timeout
+            ), self.retry_waits, self._sleep)
+        except httpx.HTTPError as e:
+            return {"error": LLMError(f"Error: {type(e).__name__}: {e} (is an Ollama server running at {self.base_url}?)")}
+        try:
+            data = resp.json()
+        except ValueError:
+            return {"error": LLMError(f"Error: HTTP {resp.status_code}: {resp.text[:200]}")}
+        if isinstance(data, dict) and data.get("error"):
+            status = f"HTTP {resp.status_code}: " if resp.status_code >= 400 else ""
+            return {"error": LLMError(f"Error: {status}{data['error']}")}
+        return data
+
+    def call(self, prompt: str) -> str:
+        data = self._request(prompt)
+        if "error" in data:
+            return data["error"]
+        # Ollama uses prompt_eval_count and eval_count
+        self.total_prompt_tokens += data.get("prompt_eval_count", 0)
+        self.total_completion_tokens += data.get("eval_count", 0)
+        return data.get("response", "")
+
+    def call_with_usage(self, prompt: str) -> LLMResponse:
+        data = self._request(prompt)
+        if "error" in data:
+            return LLMResponse(content=data["error"])
+        prompt_tokens = data.get("prompt_eval_count", 0)
+        completion_tokens = data.get("eval_count", 0)
+        self.total_prompt_tokens += prompt_tokens
+        self.total_completion_tokens += completion_tokens
+        return LLMResponse(
+            content=data.get("response", ""),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+            model=data.get("model", self.model)
+        )
