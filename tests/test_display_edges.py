@@ -12,7 +12,7 @@ from mini_agent.core.parser import parse_response
 from mini_agent.ui.common import call_args_text, thought_text
 
 BAR = "\uff5c"     # the fullwidth bar of DeepSeek's tool-call markup
-BREAKS = "\n\r\x0b\x0c\x1c\x1d\x1e\x85  "
+BREAKS = "\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"
 
 
 @pytest.mark.parametrize("args", [
@@ -20,8 +20,8 @@ BREAKS = "\n\r\x0b\x0c\x1c\x1d\x1e\x85  "
     "echo first\necho second",
     {"cmd": "echo first\recho second"},
     {"path": "directory/" * 9 + "important.txt\n"},
-    ["first second"],
-    {"options": ["first second", "third\x85fourth"]},
+    ["first\u2028second"],
+    {"options": ["first\u2028second", "third\x85fourth"]},
 ], ids=["trailing-newlines", "not-an-object", "carriage-return", "long-path-final-newline",
         "not-an-object-separator", "nested-separators"])
 def test_a_tool_call_is_shown_on_one_line(args):
