@@ -20,6 +20,7 @@ mod = importlib.import_module("mini_agent.tools.shell.bash")
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="POSIX processes and signals")
 
 REAL_POPEN = subprocess.Popen
+killers = []         # the real wait of each fake taskkill whose wait is made to fail
 
 IGNORING = """import signal, time
 for name in ("SIGINT", "SIGTERM", "SIGHUP"):
@@ -40,7 +41,8 @@ def reap(proc):
 
 def spawn_then_stop(monkeypatch, first_stop, taskkill=None):
     """Run the tool's command for real, but end the first wait for it with `first_stop` once the
-    command has printed "ready". taskkill: None, "cannot start" or "fails" (exit status 1)."""
+    command has printed "ready". taskkill: None, "cannot start", "fails" (exit status 1) or
+    "wait fails" (waiting for it raises OSError)."""
     commands = []
 
     def popen(argv, **kwargs):
@@ -48,7 +50,15 @@ def spawn_then_stop(monkeypatch, first_stop, taskkill=None):
         if argv[0] == "taskkill":
             if taskkill == "cannot start":
                 raise OSError("taskkill could not start")
-            return REAL_POPEN([sys.executable, "-c", "raise SystemExit(1)"], **kwargs)
+            killer = REAL_POPEN([sys.executable, "-c", "raise SystemExit(1)"], **kwargs)
+            if taskkill == "wait fails":
+                real_wait = killer.wait
+                killers.append(real_wait)
+
+                def failed_wait(*args, **kw):
+                    raise OSError("waiting for taskkill failed")
+                killer.wait = failed_wait
+            return killer
         kwargs["start_new_session"] = True
         proc = REAL_POPEN(argv, **kwargs)
         commands.append(proc)
@@ -123,6 +133,24 @@ def test_a_failing_taskkill_keeps_the_stop_and_ends_the_command(monkeypatch):
     finally:
         for proc in commands:
             reap(proc)
+
+
+def test_a_taskkill_whose_wait_fails_keeps_the_stop_and_ends_the_command(monkeypatch):
+    """Waiting for taskkill raises OSError: the command itself is still ended, and the stop
+    that came in is what goes on (not the OSError)."""
+    stop = StopSignal(signal.SIGTERM)
+    commands = spawn_then_stop(monkeypatch, stop, taskkill="wait fails")
+    windows_branch(monkeypatch)
+    try:
+        with pytest.raises(StopSignal) as raised:
+            mod.run_tool([sys.executable, "-c", IGNORING], timeout=10)
+        assert raised.value is stop
+        assert commands[0].poll() is not None, "the command still runs"
+    finally:
+        for proc in commands:
+            reap(proc)
+        while killers:
+            killers.pop()(timeout=5)
 
 
 def test_a_process_that_left_the_group_does_not_hold_up_the_stop(monkeypatch, tmp_path):

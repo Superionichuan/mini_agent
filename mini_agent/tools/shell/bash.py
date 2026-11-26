@@ -204,6 +204,8 @@ def stop_tree(proc: subprocess.Popen,
         stop = _ask_to_stop(proc, cause)
     except KeyboardInterrupt as e:       # a second stop while the first is handled: kill now
         stop = e
+    except Exception:                    # asking failed (taskkill, say): the kill below still runs
+        pass
     for _ in range(3):                   # kill and reap, even when yet another stop comes
         try:
             _kill(proc)
@@ -311,7 +313,7 @@ def _taskkill_tree(pid: int) -> Optional[KeyboardInterrupt]:
             break
         except KeyboardInterrupt as e:
             stop = stop or e
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, OSError):   # the command is killed next in any case
             break
     return stop
 
