@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional, Tuple
@@ -90,15 +91,49 @@ def shell() -> Tuple[str, str]:
     return ("bash", found) if found else ("sh", "/bin/sh")
 
 
+def _store_placeholder(path: str) -> bool:
+    """True for the Windows app alias python.exe that only opens the Microsoft Store."""
+    return "\\windowsapps\\" in path.replace("/", "\\").lower()
+
+
+def python_command(kind: Optional[str] = None) -> str:
+    """The command that starts a real Python 3 in the shell the bash tool uses.
+
+    On Windows the py launcher comes first, and the Microsoft Store placeholder
+    python.exe is skipped. With no usable Python on PATH, it is the interpreter
+    that runs mini_agent.
+    """
+    if kind is None:
+        kind = shell()[0]
+    if WINDOWS:
+        if shutil.which("py"):
+            return "py -3"
+        for name in ("python", "python3"):
+            found = shutil.which(name)
+            if found and not _store_placeholder(found):
+                return name
+    else:
+        for name in ("python3", "python"):
+            if shutil.which(name):
+                return name
+    exe = sys.executable.replace("\\", "/")
+    return f'& "{exe}"' if kind == "powershell" else f'"{exe}"'
+
+
 def describe_system() -> str:
-    """One line for the prompt: the operating system and the shell the bash tool uses."""
+    """One line for the prompt: the operating system, the shell the bash tool uses,
+    and the command for Python. Offline replay drops this line before matching, so
+    it must stay one line."""
     kind, exe = shell()
     if WINDOWS:
         if kind == "powershell":
-            return "Windows; the bash tool runs PowerShell commands (use PowerShell syntax)"
-        return "Windows; the bash tool runs Git Bash (Windows paths also work, e.g. C:/Users)"
-    system = "macOS" if os.uname().sysname == "Darwin" else os.uname().sysname
-    return f"{system}; the bash tool runs {'bash' if kind == 'bash' else 'sh'}"
+            base = "Windows; the bash tool runs PowerShell commands (use PowerShell syntax)"
+        else:
+            base = "Windows; the bash tool runs Git Bash (Windows paths also work, e.g. C:/Users)"
+    else:
+        system = "macOS" if os.uname().sysname == "Darwin" else os.uname().sysname
+        base = f"{system}; the bash tool runs {'bash' if kind == 'bash' else 'sh'}"
+    return f"{base}; Python: {python_command(kind)}"
 
 
 def command_line(cmd: str) -> list:

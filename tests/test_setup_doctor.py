@@ -207,6 +207,32 @@ def test_a_given_env_file_replaces_the_usual_files(places, tmp_path):
 def test_system_line_names_the_shell():
     line = shell_mod.describe_system()
     assert "bash tool runs" in line
+    assert "; Python: " in line and "\n" not in line   # one line: replay drops it whole
+
+
+def test_python_command_prefers_python3_on_posix(monkeypatch):
+    monkeypatch.setattr(shell_mod, "WINDOWS", False)
+    on_path = {"python3": "/usr/bin/python3", "python": "/usr/bin/python"}
+    monkeypatch.setattr(shell_mod.shutil, "which", lambda n: on_path.get(n))
+    assert shell_mod.python_command("bash") == "python3"
+    on_path.pop("python3")
+    assert shell_mod.python_command("bash") == "python"
+    on_path.clear()
+    assert shell_mod.python_command("bash") == '"' + shell_mod.sys.executable + '"'
+
+
+def test_python_command_skips_the_store_placeholder_on_windows(monkeypatch):
+    monkeypatch.setattr(shell_mod, "WINDOWS", True)
+    store = "C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe"
+    on_path = {"py": "C:\\Windows\\py.exe", "python": store}
+    monkeypatch.setattr(shell_mod.shutil, "which", lambda n: on_path.get(n))
+    assert shell_mod.python_command("powershell") == "py -3"
+    on_path.pop("py")                       # only the placeholder is left
+    monkeypatch.setattr(shell_mod.sys, "executable", "C:\\tools\\venv\\Scripts\\python.exe")
+    assert shell_mod.python_command("powershell") == '& "C:/tools/venv/Scripts/python.exe"'
+    assert shell_mod.python_command("bash") == '"C:/tools/venv/Scripts/python.exe"'
+    on_path["python"] = "C:\\Python312\\python.exe"   # a real one
+    assert shell_mod.python_command("powershell") == "python"
 
 
 def test_powershell_command_is_encoded(monkeypatch):
