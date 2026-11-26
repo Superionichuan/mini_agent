@@ -178,6 +178,7 @@ def run_tool(argv: list, timeout: float) -> Tuple[bytes, bytes]:
 
 
 GRACE = 2.0     # seconds a stopped command has to clean up before it is killed (POSIX)
+REAP = 0.5      # seconds to read what is left in a killed command's pipes
 
 
 def stop_tree(proc: subprocess.Popen,
@@ -188,31 +189,74 @@ def stop_tree(proc: subprocess.Popen,
     POSIX: the group first gets the signal that matches the cause (SIGINT for Ctrl+C, the stop
     signal itself for SIGTERM or SIGHUP, SIGTERM for the timeout), so that a program can clean
     up (git removes its lock file, for example); whatever still runs after GRACE seconds is
-    killed. Windows: the tree is killed at once.
+    killed. Windows: the tree is killed at once (taskkill /T); the command itself is killed
+    too, which also covers a taskkill that cannot start or fails.
 
     A stop (Ctrl+C or a stop signal) that comes meanwhile ends the wait at once and is
-    returned, so that the caller can raise it once the command is gone."""
+    returned, so that the caller can raise it once the command is gone; the command is killed
+    and reaped whatever comes in between."""
     stop = None
-    if WINDOWS:          # before the parent dies: taskkill /T follows the parent links
-        stop = _taskkill_tree(proc.pid)
-    else:
+    try:
+        stop = _ask_to_stop(proc, cause)
+    except KeyboardInterrupt as e:       # a second stop while the first is handled: kill now
+        stop = e
+    for _ in range(3):                   # kill and reap, even when yet another stop comes
+        try:
+            _kill(proc)
+            return _reap(proc) or stop
+        except KeyboardInterrupt as e:
+            stop = stop or e
+    return stop
+
+
+def _ask_to_stop(proc: subprocess.Popen,
+                 cause: Optional[BaseException]) -> Optional[KeyboardInterrupt]:
+    """Windows: taskkill /T, before the parent dies (it follows the parent links). POSIX: the
+    signal that matches the cause, then up to GRACE seconds for the group to end."""
+    if WINDOWS:
+        return _taskkill_tree(proc.pid)
+    import signal
+    if hasattr(cause, "signum"):                   # SIGTERM, SIGHUP (StopSignal)
+        first = cause.signum
+    elif isinstance(cause, KeyboardInterrupt):
+        first = signal.SIGINT
+    else:                                          # the timeout, or any other error
+        first = signal.SIGTERM
+    if _signal_group(proc.pid, first):
+        return _wait_for_group(proc, GRACE)
+    return None
+
+
+def _kill(proc: subprocess.Popen) -> None:
+    """Kill the command, and on POSIX its whole process group."""
+    if not WINDOWS:
         import signal
-        if hasattr(cause, "signum"):                   # SIGTERM, SIGHUP (StopSignal)
-            first = cause.signum
-        elif isinstance(cause, KeyboardInterrupt):
-            first = signal.SIGINT
-        else:                                          # the timeout, or any other error
-            first = signal.SIGTERM
-        if _signal_group(proc.pid, first):
-            stop = _wait_for_group(proc, GRACE)
         _signal_group(proc.pid, signal.SIGKILL)
     try:
         proc.kill()
     except OSError:
         pass
+
+
+def _reap(proc: subprocess.Popen) -> Optional[KeyboardInterrupt]:
+    """Read what is left in the killed command's pipes for at most REAP seconds (a process that
+    left its group may still hold them open), then collect its exit status. A stop that comes
+    meanwhile is returned."""
+    stop = None
     try:
-        proc.communicate(timeout=5)      # the pipes close once the processes are gone
+        proc.communicate(timeout=REAP)
     except KeyboardInterrupt as e:       # StopSignal included
+        stop = e
+    except BaseException:                # the timeout: something outside the group holds a pipe
+        if not WINDOWS:                  # the reads ran in this thread, so the pipes can close
+            for pipe in (proc.stdout, proc.stderr):
+                try:
+                    pipe.close()
+                except Exception:
+                    pass
+    try:
+        proc.wait(timeout=1)
+    except KeyboardInterrupt as e:
         stop = stop or e
     except BaseException:
         pass
@@ -250,10 +294,13 @@ def _taskkill_tree(pid: int) -> Optional[KeyboardInterrupt]:
     second Ctrl+C on the console does not reach it, and it is waited for even when that Ctrl+C
     reaches this process (the Ctrl+C is returned instead)."""
     stop = None
-    killer = subprocess.Popen(["taskkill", "/F", "/T", "/PID", str(pid)],
-                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL,
-                              creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+    try:
+        killer = subprocess.Popen(["taskkill", "/F", "/T", "/PID", str(pid)],
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL,
+                                  creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+    except OSError:                      # taskkill could not start; the command is killed next
+        return None
     for _ in range(3):
         try:
             killer.wait(timeout=30)
