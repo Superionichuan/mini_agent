@@ -40,7 +40,7 @@ from ..core import Agent
 from ..core.agent.run import failed_call
 from ..core.policy import Approval, summarize_call
 from ..session import SessionLog
-from .common import (PLAN_GUIDANCE, SESS_DIR,  # noqa: F401 (also imported from here)
+from .common import (call_args_text, thought_text, PLAN_GUIDANCE, SESS_DIR,  # noqa: F401 (also imported from here)
                      compact_notice, folder_of, hold_session, latest_session, new_session_path,
                      provider_label, resume_state, mark_message, note_approval_now,
                      session_conversation, shows_answer, stop_notice)
@@ -179,7 +179,7 @@ class ThinkMsg(Msg):
     def render(self):
         body = Text()
         body.append("✻ ", style=theme.ACCENT)
-        body.append(self.thought, style=theme.INACTIVE)
+        body.append(thought_text(self.thought), style=theme.INACTIVE)
         body.append(f"  ({self.tokens})", style=theme.SUBTLE)
         return body
 
@@ -221,7 +221,7 @@ class ToolCard(Msg):
         body = Text()
         body.append("● ", style=f"bold {dot}")
         body.append(f"{self.tool_name}", style=f"bold {theme.TEXT}")
-        body.append(f"({self.tool_args})", style=theme.INACTIVE)
+        body.append(f"({call_args_text(self.tool_args)})", style=theme.INACTIVE)
         if self.result_text is None:
             spin = SPIN[self._frame % len(SPIN)]
             body.append(f"  {spin} ", style=theme.WARNING)

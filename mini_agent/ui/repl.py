@@ -22,7 +22,7 @@ from ..core.policy import Approval, NeedsApproval, summarize_call
 from ..terminal import stdin_is_terminal
 from ..session import SessionLog
 from . import pets, theme
-from .common import (EXIT_BUSY, PLAN_GUIDANCE, SESS_DIR, compact_notice, exit_status, folder_of,
+from .common import (call_args_text, thought_text, EXIT_BUSY, PLAN_GUIDANCE, SESS_DIR, compact_notice, exit_status, folder_of,
                      interrupted_line, interrupted_status, stop_signals_raise,
                      hold_session, latest_session, mark_message, new_session_path,
                      note_approval_now, provider_label, resume_state, session_conversation,
@@ -102,7 +102,7 @@ class LiveStatus:
 def _print_think(console, d):
     t = Text()
     t.append("✻ ", style=theme.ACCENT)
-    t.append(d["thought"], style=theme.INACTIVE)
+    t.append(thought_text(d["thought"]), style=theme.INACTIVE)
     t.append(f"  (↑{d.get('tokens_in', 0):,} ↓{d.get('tokens_out', 0):,})",
              style=theme.SUBTLE)
     console.print(t)
@@ -113,7 +113,7 @@ def _print_tool(console, call, d):
     err = d.get("is_error", False)
     t.append("● ", style=f"bold {theme.ERROR if err else theme.SUCCESS}")
     t.append(call.get("name", "(invalid reply)"), style=f"bold {theme.TEXT}")
-    t.append(f"({call.get('args', '')})", style=theme.INACTIVE)
+    t.append(f"({call_args_text(call.get('args', ''))})", style=theme.INACTIVE)
     content = str(d.get("content", ""))
     lines = content.split("\n")
     for j, ln in enumerate(lines[:30]):

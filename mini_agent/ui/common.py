@@ -1,4 +1,5 @@
 """What the plain terminal mode and the full-screen interface share (no textual needed)."""
+import json
 import os
 import re
 from pathlib import Path
@@ -302,3 +303,55 @@ def new_session_path(directory: Optional[Path] = None) -> Path:
             return path
         except FileExistsError:
             n += 1
+
+
+# --- what the screen shows of a tool call and a thought (the session log keeps both whole) ---
+
+ARG_TEXT_MAX = 80      # a longer string argument is shown by its first line and its size
+
+# A reply in the provider's tool-call markup starts like "<|DSML|function_calls>" with
+# fullwidth bars (U+FF5C), sometimes doubled.
+_MARKUP = re.compile("<[\uff5c|]{1,2}[A-Za-z_]+[\uff5c|]{1,2}")
+
+
+def _size(text: str) -> str:
+    lines = text.count("\n") + (0 if text.endswith("\n") else 1) if text else 0
+    return (f"{lines} line{'' if lines == 1 else 's'}, "
+            f"{len(text)} character{'' if len(text) == 1 else 's'}")
+
+
+def call_args_text(args) -> str:
+    """A tool call's arguments as one short line for the screen: name=value pairs. The content
+    of write_file is shown by its size only; any other string longer than ARG_TEXT_MAX
+    characters, or with more than one line, by its first line and its size; other values are
+    cut at ARG_TEXT_MAX characters. The approval preview and the session log keep them whole."""
+    if not isinstance(args, dict):
+        return str(args)
+    parts = []
+    for key, value in args.items():
+        if isinstance(value, str):
+            if key == "content":
+                parts.append(f"{key}: {_size(value)}")
+            elif len(value) > ARG_TEXT_MAX or "\n" in value.rstrip("\n"):
+                first = value.lstrip("\n").split("\n", 1)[0][:ARG_TEXT_MAX]
+                parts.append(f"{key}={first} … ({_size(value)})")
+            else:
+                parts.append(f"{key}={value}")
+        else:
+            text = json.dumps(value, ensure_ascii=False, default=str)
+            parts.append(f"{key}={text if len(text) <= ARG_TEXT_MAX else text[:ARG_TEXT_MAX] + ' …'}")
+    return ", ".join(parts)
+
+
+def thought_text(thought) -> str:
+    """The thought as the screen shows it. When the model replied in its provider's tool-call
+    markup instead of the JSON the prompt asks for, the parser takes the action from the markup
+    and the thought is only the markup's opening tags; they are replaced by a note in brackets
+    (any text before them is kept). The session log keeps the reply as it was."""
+    thought = "" if thought is None else str(thought)
+    found = _MARKUP.search(thought)
+    if not found:
+        return thought
+    before = thought[:found.start()].rstrip()
+    note = "[the reply was in the model's own tool-call markup; the action was read from it]"
+    return f"{before} {note}" if before else note
