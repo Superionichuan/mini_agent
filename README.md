@@ -99,7 +99,8 @@ folder, the calculator, notes) run without asking.
   a credential helper.
 - To leave a process running after the tool returns, redirect its output, e.g.
   `server > server.log 2>&1 &`. Otherwise the tool waits until its 120 s limit. On macOS
-  and Linux it then ends the process (unless the process started a session of its own, as
+  and Linux it then stops the process: SIGTERM first, and 2 s later SIGKILL for whatever is
+  left (unless the process started a session of its own, as
   `setsid` and most daemons do); on Windows a process started in the background keeps
   running, so end it yourself (in Task Manager, or with `taskkill /F /IM name.exe`, which
   ends every process with that name).
@@ -165,9 +166,15 @@ again later"); a continue that completes a step starts the count again.
 0, so it is harmless to run at every login.
 
 Ctrl+C, a service stop (SIGTERM) or closing the terminal also stops the tool the agent is
-running. A process killed outright (`kill -9`, out of memory, `taskkill /F`) cannot do that:
-a command its tool had started may still finish. When the task continues, that call is not
-run again; the model is told it was cut off.
+running. On macOS and Linux the tool's command gets the same signal first (SIGINT for
+Ctrl+C) and 2 s to clean up; whatever is still running then is killed. On Windows the
+command is ended at once. A process killed outright (`kill -9`, out of memory,
+`taskkill /F`) cannot do that: a command its tool had started may still finish. When the
+task continues, that call is not run again; the model is told it was cut off.
+
+Started from a script as a background job (`mini_agent "..." &` in `sh`), a run without
+`--keep-alive` inherits the shell's rule that background jobs ignore SIGINT, so Ctrl+C and
+`kill -INT` do nothing. Stop such a run with `kill -TERM <pid>`, which ends it the same way.
 
 `-c` does not remember the options of the earlier run: repeat `--yes`, `--budget` and the
 rest. Without a terminal nobody can approve a risky call, so without `--yes` the first one
