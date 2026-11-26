@@ -308,50 +308,75 @@ def new_session_path(directory: Optional[Path] = None) -> Path:
 # --- what the screen shows of a tool call and a thought (the session log keeps both whole) ---
 
 ARG_TEXT_MAX = 80      # a longer string argument is shown by its first line and its size
+MORE = "\u2026"          # the mark for text left out
 
-# A reply in the provider's tool-call markup starts like "<|DSML|function_calls>" with
-# fullwidth bars (U+FF5C), sometimes doubled.
-_MARKUP = re.compile("<[\uff5c|]{1,2}[A-Za-z_]+[\uff5c|]{1,2}")
+# A reply in tool-call markup: the parser reads the action from the first `invoke name="..."`
+# and the thought is the text before it, e.g. "<|DSML|function_calls>\n<|DSML|" with fullwidth
+# bars (U+FF5C, sometimes doubled), or "<function_calls><" without bars.
+_TAG = "<(?:[\uff5c|]{1,2}[A-Za-z_]+[\uff5c|]{1,2})?"
+_CALLS = re.compile(_TAG + "function_calls>")         # the opening tag of the calls
+_CUT = re.compile(_TAG + "\\s*$")                    # where the parser cut before `invoke`
+_BARRED = re.compile("<[\uff5c|]{1,2}[A-Za-z_]+[\uff5c|]{1,2}")   # a tag with bars
 
 
 def _size(text: str) -> str:
-    lines = text.count("\n") + (0 if text.endswith("\n") else 1) if text else 0
+    lines = len(text.splitlines())
     return (f"{lines} line{'' if lines == 1 else 's'}, "
             f"{len(text)} character{'' if len(text) == 1 else 's'}")
 
 
+def _value_text(value: str, key=None) -> str:
+    """One string argument as one line: the content of write_file by its size; a short
+    one-line value as it is; a long path cut in the middle, so that the file name stays; any
+    other long or multi-line value by its first line and its size."""
+    if key == "content":
+        return f"{key}: {_size(value)}"
+    lines = value.splitlines()
+    if len(lines) <= 1 and len(value) <= ARG_TEXT_MAX:
+        shown = lines[0] if lines else ""
+    elif len(lines) <= 1 and key == "path":
+        half = (ARG_TEXT_MAX - 1) // 2
+        shown = value[:half] + MORE + value[-half:]
+    else:
+        first = next((line for line in lines if line.strip()), "")[:ARG_TEXT_MAX]
+        shown = f"{first} {MORE} ({_size(value)})"
+    return shown if key is None else f"{key}={shown}"
+
+
 def call_args_text(args) -> str:
-    """A tool call's arguments as one short line for the screen: name=value pairs. The content
-    of write_file is shown by its size only; any other string longer than ARG_TEXT_MAX
-    characters, or with more than one line, by its first line and its size; other values are
-    cut at ARG_TEXT_MAX characters. The approval preview and the session log keep them whole."""
+    """A tool call's arguments as one short line for the screen: name=value pairs (see
+    _value_text for strings); other values are cut at ARG_TEXT_MAX characters. Arguments that
+    are not an object are shown the same way as one value. The approval preview and the
+    session log keep them whole."""
+    if isinstance(args, str):
+        return _value_text(args)
     if not isinstance(args, dict):
-        return str(args)
+        text = json.dumps(args, ensure_ascii=False, default=str)
+        return text if len(text) <= ARG_TEXT_MAX else text[:ARG_TEXT_MAX] + " " + MORE
     parts = []
     for key, value in args.items():
         if isinstance(value, str):
-            if key == "content":
-                parts.append(f"{key}: {_size(value)}")
-            elif len(value) > ARG_TEXT_MAX or "\n" in value.rstrip("\n"):
-                first = value.lstrip("\n").split("\n", 1)[0][:ARG_TEXT_MAX]
-                parts.append(f"{key}={first} … ({_size(value)})")
-            else:
-                parts.append(f"{key}={value}")
+            parts.append(_value_text(value, key))
         else:
             text = json.dumps(value, ensure_ascii=False, default=str)
-            parts.append(f"{key}={text if len(text) <= ARG_TEXT_MAX else text[:ARG_TEXT_MAX] + ' …'}")
+            if len(text) > ARG_TEXT_MAX:
+                text = text[:ARG_TEXT_MAX] + " " + MORE
+            parts.append(f"{key}={text}")
     return ", ".join(parts)
 
 
 def thought_text(thought) -> str:
-    """The thought as the screen shows it. When the model replied in its provider's tool-call
-    markup instead of the JSON the prompt asks for, the parser takes the action from the markup
-    and the thought is only the markup's opening tags; they are replaced by a note in brackets
-    (any text before them is kept). The session log keeps the reply as it was."""
+    """The thought as the screen shows it. When the model replied in tool-call markup instead
+    of the JSON the prompt asks for, the parser takes the action from the markup and the thought
+    is only the markup's opening tags; they are replaced by a note in brackets, after any text
+    that came before them (on one line). Detected by what the parser leaves: the opening tag of
+    the calls, or a thought that ends where the parser cut before `invoke`. The session log
+    keeps the reply as it was."""
     thought = "" if thought is None else str(thought)
-    found = _MARKUP.search(thought)
-    if not found:
+    calls, cut = _CALLS.search(thought), _CUT.search(thought)
+    if not (calls or cut):
         return thought
-    before = thought[:found.start()].rstrip()
+    start = min(m.start() for m in (calls, cut, _BARRED.search(thought)) if m)
+    before = " ".join(line.strip() for line in thought[:start].splitlines() if line.strip())
     note = "[the reply was in the model's own tool-call markup; the action was read from it]"
     return f"{before} {note}" if before else note

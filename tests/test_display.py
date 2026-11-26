@@ -34,7 +34,7 @@ def test_a_long_or_multi_line_string_shows_its_first_line_and_size():
 def test_short_values_are_shown_as_they_are():
     assert call_args_text({"expr": "3**7"}) == "expr=3**7"
     assert call_args_text({"path": "a.txt", "n": 3}) == "path=a.txt, n=3"
-    assert call_args_text({"cmd": "python primes.py\n"}) == "cmd=python primes.py\n"
+    assert call_args_text({"cmd": "python primes.py\n"}) == "cmd=python primes.py"
     assert call_args_text({}) == ""
     assert call_args_text("") == ""
 
@@ -56,7 +56,7 @@ def test_a_reply_in_tool_call_markup_is_shown_with_a_note():
     shown = thought_text(thought)
     assert shown.endswith("[the reply was in the model's own tool-call markup; "
                           "the action was read from it]")
-    assert "｜" not in shown and "DSML" not in shown
+    assert "\uff5c" not in shown and "DSML" not in shown
 
 
 def test_an_ordinary_thought_is_shown_as_it_is():
@@ -80,5 +80,5 @@ def test_the_full_screen_mode_uses_the_same_texts():
     from mini_agent.ui import tui
     card = tui.ToolCard("bash", {"cmd": "echo one\necho two"})
     assert "bash(cmd=echo one … (2 lines, 17 characters))" in card.render().plain
-    think = tui.ThinkMsg(1, "<｜DSML｜function_calls>", "1 in / 2 out")
+    think = tui.ThinkMsg(1, "<\uff5cDSML\uff5cfunction_calls>", "1 in / 2 out")
     assert "[the reply was in the model's own tool-call markup" in think.render().plain
