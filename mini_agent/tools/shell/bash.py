@@ -117,10 +117,21 @@ def python_command(kind: Optional[str] = None) -> str:
         for name in ("python3", "python"):
             if shutil.which(name):
                 return name
-    exe = sys.executable.replace("\\", "/")
+    exe = sys.executable.replace("\\", "/") if WINDOWS else sys.executable
     if kind == "powershell":                       # a literal string: no $ expansion
         return "& '" + exe.replace("'", "''") + "'"
-    return shlex.quote(exe)                        # sh, bash and Git Bash
+    if exe.isprintable() or kind != "bash":
+        return shlex.quote(exe)                    # sh, bash and Git Bash
+    return "$'" + "".join(_ansi_c(c) for c in exe) + "'"   # bash: a line break as \x0a
+
+
+def _ansi_c(c: str) -> str:
+    """One character of a path inside bash's $'...' quoting (bash 3.2 included)."""
+    if c in "\\'":
+        return "\\" + c
+    if c.isprintable():
+        return c
+    return "".join("\\x%02x" % b for b in os.fsencode(c))
 
 
 def describe_system() -> str:
@@ -136,8 +147,11 @@ def describe_system() -> str:
     else:
         system = "macOS" if os.uname().sysname == "Darwin" else os.uname().sysname
         base = f"{system}; the bash tool runs {'bash' if kind == 'bash' else 'sh'}"
-    line = f"{base}; Python: {python_command(kind)}"
-    return "".join(c if c.isprintable() else "?" for c in line)   # one line, whatever the path
+    python = python_command(kind)
+    if not python.isprintable():       # a path this shell cannot be given on one line
+        python = "none on PATH"
+    line = f"{base}; Python: {python}"
+    return "".join(c if c.isprintable() else "?" for c in line)   # one line, whatever happens
 
 
 def command_line(cmd: str) -> list:

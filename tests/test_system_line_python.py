@@ -43,3 +43,28 @@ def test_the_system_line_stays_one_line(monkeypatch, tmp_path):
     before = "Workspace: here\nSystem: Linux; the bash tool runs bash\n\n[Goal]\nsomething\n"
     after = before.replace("Linux; the bash tool runs bash", line)
     assert normalize(before) == normalize(after)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a POSIX shell runs the command")
+def test_the_printed_command_runs_a_path_with_a_line_break(monkeypatch, tmp_path):
+    exe = tmp_path / "line\nbreak" / "python"
+    exe.parent.mkdir()
+    exe.write_text("printf started\n")
+    exe.chmod(0o700)
+    no_python_on_path(monkeypatch, exe)
+    monkeypatch.setattr(shellmod, "shell", lambda: ("bash", "bash"))
+    command = shellmod.describe_system().split("; Python: ", 1)[1]
+    assert command.isprintable(), repr(command)
+    done = subprocess.run(["bash", "-c", command], capture_output=True, text=True)
+    assert (done.returncode, done.stdout) == (0, "started"), (command, done.stderr)
+
+
+def test_sh_is_not_given_a_command_it_cannot_run(monkeypatch, tmp_path):
+    no_python_on_path(monkeypatch, tmp_path / "line\nbreak" / "python")
+    monkeypatch.setattr(shellmod, "shell", lambda: ("sh", "sh"))
+    assert shellmod.describe_system().endswith("; Python: none on PATH")
+
+
+def test_a_backslash_in_a_posix_path_is_kept(monkeypatch):
+    no_python_on_path(monkeypatch, "/opt/odd\\name/bin/python")
+    assert shellmod.python_command("bash") == "'/opt/odd\\name/bin/python'"
