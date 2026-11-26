@@ -172,7 +172,9 @@ kills it at once. With `--keep-alive`, a SIGTERM sent to mini_agent itself is pa
 the running task about 3 s later, so the tool is gone at most about 5 s after it: after a
 Ctrl+C in a terminal the task already has the signal, and passing it on at once would count
 as a second stop and kill the tool before it cleans up. On Windows the command is ended at
-once. A process killed outright (`kill -9`, out of memory,
+once, with everything it started (`taskkill /T`); if taskkill cannot run or fails, the
+command itself is still ended, but programs it started may keep running: end them in Task
+Manager. A process killed outright (`kill -9`, out of memory,
 `taskkill /F`) cannot do that: a command its tool had started may still finish. When the
 task continues, that call is not run again; the model is told it was cut off.
 
