@@ -12,6 +12,7 @@ run retries three times (1 + 2 + 4 s) before it gives up.
 import http.server
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -338,6 +339,82 @@ def hard_kill(pid):
         os.kill(pid, signal.SIGKILL)
 
 
+# In a Windows virtual environment, python.exe is a launcher: it starts the real interpreter as
+# its child and waits for it. A process started as sys.executable then runs one level below the
+# PID that Popen reports, and os.getppid() inside it names the launcher, not the process that
+# started it. WIN_PROCS finds the process behind such a launcher. It is plain source, so that a
+# tool call can run it too.
+WIN_PROCS = r'''
+import ctypes, os, sys
+from ctypes import wintypes as _w
+
+class _Entry(ctypes.Structure):
+    _fields_ = [("dwSize", _w.DWORD), ("cntUsage", _w.DWORD), ("th32ProcessID", _w.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", _w.DWORD),
+                ("cntThreads", _w.DWORD), ("th32ParentProcessID", _w.DWORD),
+                ("pcPriClassBase", ctypes.c_long), ("dwFlags", _w.DWORD),
+                ("szExeFile", ctypes.c_wchar * 260)]
+
+_k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+_k32.CreateToolhelp32Snapshot.restype = _w.HANDLE
+_k32.CreateToolhelp32Snapshot.argtypes = [_w.DWORD, _w.DWORD]
+_k32.Process32FirstW.argtypes = [_w.HANDLE, ctypes.POINTER(_Entry)]
+_k32.Process32NextW.argtypes = [_w.HANDLE, ctypes.POINTER(_Entry)]
+_k32.OpenProcess.restype = _w.HANDLE
+_k32.OpenProcess.argtypes = [_w.DWORD, _w.BOOL, _w.DWORD]
+_k32.QueryFullProcessImageNameW.argtypes = [_w.HANDLE, _w.DWORD, _w.LPWSTR, ctypes.POINTER(_w.DWORD)]
+_k32.CloseHandle.argtypes = [_w.HANDLE]
+
+def parent_of(pid):
+    """The PID of pid's parent, or None."""
+    snap = _k32.CreateToolhelp32Snapshot(0x2, 0)               # TH32CS_SNAPPROCESS
+    entry = _Entry()
+    entry.dwSize = ctypes.sizeof(_Entry)
+    try:
+        ok = _k32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            if entry.th32ProcessID == pid:
+                return entry.th32ParentProcessID
+            ok = _k32.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        _k32.CloseHandle(snap)
+    return None
+
+def image_of(pid):
+    """The path of pid's executable, or None."""
+    handle = _k32.OpenProcess(0x1000, False, pid)              # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return None
+    try:
+        buf = ctypes.create_unicode_buffer(32768)
+        size = _w.DWORD(len(buf))
+        ok = _k32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size))
+        return buf.value if ok else None
+    finally:
+        _k32.CloseHandle(handle)
+
+def _same(a, b):
+    try:
+        return bool(a and b) and os.path.samefile(a, b)
+    except OSError:
+        return os.path.normcase(a) == os.path.normcase(b)
+
+def starter_of(pid):
+    """The process that started pid with sys.executable, skipping a venv launcher in between."""
+    parent = parent_of(pid)
+    if parent and not _same(image_of(parent), image_of(pid)) and _same(image_of(parent), sys.executable):
+        return parent_of(parent)                                # parent is the launcher
+    return parent
+'''
+if WINDOWS:
+    exec(WIN_PROCS)
+
+
+def same_process(named, started):
+    """Is the PID a message names the process Popen started, or the interpreter behind its launcher?"""
+    return named == started or (WINDOWS and parent_of(named) == started)
+
+
 posix_only = pytest.mark.skipif(not POSIX, reason="signals and process groups as on POSIX")
 
 
@@ -370,7 +447,8 @@ def test_401_and_404_stop_at_once_without_waiting(make, code):
 def test_child_killed_mid_step_continues_without_running_the_call_twice(make, tmp_path):
     marker = tmp_path / "runs.txt"
     if WINDOWS:
-        kill = ("import subprocess; subprocess.run(['taskkill', '/F', '/PID', str(os.getppid())], "
+        kill = (WIN_PROCS + "\nimport subprocess\n"
+                "subprocess.run(['taskkill', '/F', '/PID', str(starter_of(os.getpid()))], "
                 "capture_output=True)")
     else:
         kill = "import signal; os.kill(os.getppid(), signal.SIGKILL)"
@@ -451,7 +529,9 @@ def test_a_second_process_on_the_same_session_is_refused(make):
         second = s.run(*args, timeout=60)
         shown = s.stdout(second) + s.stderr(second)
         assert second.returncode == 4, shown
-        assert "in use by another mini_agent process" in shown and str(first.pid) in shown
+        assert "in use by another mini_agent process" in shown, shown
+        holder = re.search(r"\(process (\d+)\)", shown)
+        assert holder and same_process(int(holder.group(1)), first.pid), shown
     assert first.poll() is None                              # the first one carries on
 
 
