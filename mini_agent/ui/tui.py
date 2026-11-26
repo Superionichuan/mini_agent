@@ -172,14 +172,14 @@ class PetSplash(Msg):
 
 
 class ThinkMsg(Msg):
-    def __init__(self, step: int, thought: str, tokens: str):
+    def __init__(self, step: int, thought: str, tokens: str, markup: bool = False):
         super().__init__()
-        self.step, self.thought, self.tokens = step, thought, tokens
+        self.step, self.thought, self.tokens, self.markup = step, thought, tokens, markup
 
     def render(self):
         body = Text()
         body.append("✻ ", style=theme.ACCENT)
-        body.append(thought_text(self.thought), style=theme.INACTIVE)
+        body.append(thought_text(self.thought, self.markup), style=theme.INACTIVE)
         body.append(f"  ({self.tokens})", style=theme.SUBTLE)
         return body
 
@@ -440,7 +440,8 @@ class MiniAgentApp(App):
                 self._append(UserMsg(d["content"]))
             elif t == "step/think" and not failed_call(d):
                 self._append(ThinkMsg(d["step"], d["thought"],
-                             f"↑{d.get('tokens_in',0):,} ↓{d.get('tokens_out',0):,}"))
+                             f"↑{d.get('tokens_in',0):,} ↓{d.get('tokens_out',0):,}",
+                             d.get("markup", False)))
             elif t == "tool/call":
                 c = ToolCard(d["name"], d["args"]); cards[d["call_id"]] = c
                 self._append(c)
@@ -590,7 +591,8 @@ class MiniAgentApp(App):
                     tokens_out=d["tokens_out"])
             if not failed_call(d):     # a failed call: the answer below says why
                 self._append(ThinkMsg(d["step"], d["thought"],
-                                      f"↑{d['tokens_in']:,} ↓{d['tokens_out']:,}"))
+                                      f"↑{d['tokens_in']:,} ↓{d['tokens_out']:,}",
+                                      d.get("markup", False)))
         elif type == "tool/call":
             card = ToolCard(d["name"], d["args"])
             self._cards[d["call_id"]] = card

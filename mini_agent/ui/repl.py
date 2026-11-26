@@ -102,7 +102,7 @@ class LiveStatus:
 def _print_think(console, d):
     t = Text()
     t.append("✻ ", style=theme.ACCENT)
-    t.append(thought_text(d["thought"]), style=theme.INACTIVE)
+    t.append(thought_text(d["thought"], d.get("markup", False)), style=theme.INACTIVE)
     t.append(f"  (↑{d.get('tokens_in', 0):,} ↓{d.get('tokens_out', 0):,})",
              style=theme.SUBTLE)
     console.print(t)

@@ -13,6 +13,18 @@ CODE_HINT = ("Put code in write_file's content (its own argument), then run the 
              'write \\" for a double quote and \\n for a newline')
 
 
+class Parsed(tuple):
+    """(thought, action, args), as parse_response returns it. `markup` is True when the action
+    was read from the model's own tool-call markup instead of a JSON object."""
+    markup = False
+
+
+def _parsed(thought, action, args, markup: bool = False) -> Parsed:
+    result = Parsed((thought, action, args))
+    result.markup = markup
+    return result
+
+
 def _syntax_error(response: str, start: int, err: json.JSONDecodeError) -> str:
     """Why a reply object that begins like an action does not parse, and where."""
     near = response[max(start, err.pos - 20):err.pos + 8]
@@ -57,6 +69,8 @@ def parse_response(response: str) -> Tuple[str, Optional[str], dict]:
     When the reply has an object that begins like an action ({"thought": or
     {"action":) but does not parse, the error gives the JSON error and where,
     and args["json_syntax"] is True.
+    The result is a Parsed tuple; its `markup` is True when the action came from
+    tool-call markup (the screen then shows a note instead of the markup).
     """
     decoder = json.JSONDecoder()
     start = response.find("{")
@@ -72,11 +86,12 @@ def parse_response(response: str) -> Tuple[str, Optional[str], dict]:
             args = data.get("args")
             thought = data.get("thought")
             thought = "" if thought is None else str(thought)
-            return thought, data["action"], args if args is not None else {}
+            return _parsed(thought, data["action"], args if args is not None else {})
         start = response.find("{", start + 1)
     markup = _from_markup(response)
     if markup is not None:
-        return markup
+        return _parsed(*markup, markup=True)
     if syntax is not None:
-        return response, None, {"error": syntax, "json_syntax": True}
-    return response, None, {"error": 'the reply contains no JSON object with a string "action" field'}
+        return _parsed(response, None, {"error": syntax, "json_syntax": True})
+    return _parsed(response, None,
+                   {"error": 'the reply contains no JSON object with a string "action" field'})

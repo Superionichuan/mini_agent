@@ -51,9 +51,10 @@ def test_a_reply_in_tool_call_markup_is_shown_with_a_note():
                for line in recording.read_text(encoding="utf-8").splitlines() if line.strip()]
     markup = [r for r in replies if 'invoke name="' in r]
     assert markup, "the tutorial recording has a reply in tool-call markup"
-    thought, action, _ = parse_response(markup[0])
-    assert action                                  # the parser still reads the action
-    shown = thought_text(thought)
+    parsed = parse_response(markup[0])
+    thought, action, _ = parsed
+    assert action and parsed.markup                # the parser still reads the action
+    shown = thought_text(thought, parsed.markup)
     assert shown.endswith("[the reply was in the model's own tool-call markup; "
                           "the action was read from it]")
     assert "\uff5c" not in shown and "DSML" not in shown
@@ -80,5 +81,7 @@ def test_the_full_screen_mode_uses_the_same_texts():
     from mini_agent.ui import tui
     card = tui.ToolCard("bash", {"cmd": "echo one\necho two"})
     assert "bash(cmd=echo one … (2 lines, 17 characters))" in card.render().plain
-    think = tui.ThinkMsg(1, "<\uff5cDSML\uff5cfunction_calls>", "1 in / 2 out")
+    think = tui.ThinkMsg(1, "<\uff5cDSML\uff5cfunction_calls>", "1 in / 2 out", markup=True)
     assert "[the reply was in the model's own tool-call markup" in think.render().plain
+    plain = tui.ThinkMsg(1, "The literal <function_calls> is data.", "1 in / 2 out")
+    assert "The literal <function_calls> is data." in plain.render().plain

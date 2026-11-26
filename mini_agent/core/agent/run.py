@@ -9,6 +9,8 @@ Event protocol (same taxonomy as mini_agent.session):
     turn/start   {goal, name}
     step/start   {step}
     step/think   {step, thought, action, args, tokens_in, tokens_out}
+                 (and markup: true when the action was read from the model's own tool-call
+                 markup; the screen then shows a note instead of the markup)
     tool/call    {step, call_id, name, args}
     tool/result  {step, call_id, content, is_error}
     todo/write   {todos}                       (after a successful todo_write)
@@ -159,13 +161,14 @@ def run_agent(
             on_chunk = None
             if on_event is not None:
                 on_chunk = lambda text, kind="content": emit("assistant/chunk", step=step, text=text, kind=kind)
-            thought, action, args = think(
+            reply = think(
                 llm, goal, tool_desc, history,
                 skills=skills_prompt,
                 memory=memory_prompt,
                 on_chunk=on_chunk,
                 prompt_name=prompt_name
             )
+            thought, action, args = reply
 
             prompt_tokens = getattr(llm, 'total_prompt_tokens', 0)
             completion_tokens = getattr(llm, 'total_completion_tokens', 0)
@@ -173,7 +176,8 @@ def run_agent(
 
             emit("step/think", step=step, name=name, thought=thought,
                  action=action, args=args,
-                 tokens_in=prompt_tokens, tokens_out=completion_tokens)
+                 tokens_in=prompt_tokens, tokens_out=completion_tokens,
+                 **({"markup": True} if getattr(reply, "markup", False) else {}))
 
             # 2. Done?
             if is_done(action):
