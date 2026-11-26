@@ -16,6 +16,7 @@ direct question it stores the normalized question text.
 import hashlib
 import json
 import re
+import sys
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -25,6 +26,11 @@ DEFAULT_RECORDING = Path(__file__).parent / "recordings" / "tutorial.jsonl"
 NO_RECORDING = ("[offline mode] No recorded response matches this prompt. Offline "
                 "mode replays the tutorial's recorded examples only; select a "
                 "provider and API key in the setup cell to run new prompts.")
+
+
+NEAR_MATCH = ("[offline mode] This prompt was not recorded; replaying the closest recorded "
+              "step of the same task (similarity {score:.2f}). A changed prompt, skill or "
+              "approval policy has no effect offline: choose a live model to see what it does.")
 
 
 class NoRecording(LLMError):
@@ -115,6 +121,10 @@ class OfflineLLM(BaseLLM):
         best = max((sc for sc, _ in scored), default=0)
         if best < 0.5:
             return None
+        noted = self.__dict__.setdefault("_noted", set())   # tasks already told, this object
+        if q["goal"] not in noted:             # say it once per task, not at every step
+            noted.add(q["goal"])
+            print(NEAR_MATCH.format(score=best), file=sys.stderr)
         return self._next("fallback:" + q["key"], [r for sc, r in scored if sc == best])
 
     def call(self, prompt: str) -> str:
