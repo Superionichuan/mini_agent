@@ -35,9 +35,9 @@ def ignoring(sleeper: str) -> str:
     return f"trap '' INT TERM HUP; touch ready; {sleeper}; touch late"
 
 
-@pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGINT, signal.SIGHUP],
-                         ids=lambda s: signal.Signals(s).name)
-def test_a_stopped_command_gets_the_same_signal_first_and_cleans_up(tmp_path, sig):
+@pytest.mark.parametrize("signame", ["SIGTERM", "SIGINT", "SIGHUP"])
+def test_a_stopped_command_gets_the_same_signal_first_and_cleans_up(tmp_path, signame):
+    sig = getattr(signal, signame)   # by name: Windows imports this module too, and has no SIGHUP
     sleeper = marker()
     with Flaky([call("bash", cmd=cleaning(sleeper))]) as server:
         proc = start(["--yes", "run it"], env_of(server), tmp_path)
