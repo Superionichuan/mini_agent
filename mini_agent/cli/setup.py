@@ -222,5 +222,6 @@ def _setup(args) -> int:
     print(f"Saved to {where}: {shown}")
     # offline mode replays the recorded tutorial tasks only, so suggest one of those
     trial = "Compute 3**7." if provider == "offline" else "What is 2**10?"
-    print(f'Try it:  mini_agent "{trial}"      Check:  mini_agent doctor')
+    print(f'Try it:  mini_agent "{trial}"')       # one command per line, to paste as it is
+    print("Check:   mini_agent doctor")
     return 0
