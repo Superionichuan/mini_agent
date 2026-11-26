@@ -1,6 +1,7 @@
 """mini_agent setup / doctor, the order of the settings sources, and the shell on each OS."""
 import base64
 import json
+import shlex
 import os
 import shutil
 import subprocess
@@ -218,7 +219,7 @@ def test_python_command_prefers_python3_on_posix(monkeypatch):
     on_path.pop("python3")
     assert shell_mod.python_command("bash") == "python"
     on_path.clear()
-    assert shell_mod.python_command("bash") == '"' + shell_mod.sys.executable + '"'
+    assert shell_mod.python_command("bash") == shlex.quote(shell_mod.sys.executable.replace("\\", "/"))
 
 
 def test_python_command_skips_the_store_placeholder_on_windows(monkeypatch):
@@ -229,8 +230,8 @@ def test_python_command_skips_the_store_placeholder_on_windows(monkeypatch):
     assert shell_mod.python_command("powershell") == "py -3"
     on_path.pop("py")                       # only the placeholder is left
     monkeypatch.setattr(shell_mod.sys, "executable", "C:\\tools\\venv\\Scripts\\python.exe")
-    assert shell_mod.python_command("powershell") == '& "C:/tools/venv/Scripts/python.exe"'
-    assert shell_mod.python_command("bash") == '"C:/tools/venv/Scripts/python.exe"'
+    assert shell_mod.python_command("powershell") == "& 'C:/tools/venv/Scripts/python.exe'"
+    assert shell_mod.python_command("bash") == "C:/tools/venv/Scripts/python.exe"
     on_path["python"] = "C:\\Python312\\python.exe"   # a real one
     assert shell_mod.python_command("powershell") == "python"
 

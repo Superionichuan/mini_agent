@@ -8,6 +8,7 @@ Output is read as UTF-8, so text such as Chinese comes back intact.
 import base64
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -117,7 +118,9 @@ def python_command(kind: Optional[str] = None) -> str:
             if shutil.which(name):
                 return name
     exe = sys.executable.replace("\\", "/")
-    return f'& "{exe}"' if kind == "powershell" else f'"{exe}"'
+    if kind == "powershell":                       # a literal string: no $ expansion
+        return "& '" + exe.replace("'", "''") + "'"
+    return shlex.quote(exe)                        # sh, bash and Git Bash
 
 
 def describe_system() -> str:
@@ -133,7 +136,8 @@ def describe_system() -> str:
     else:
         system = "macOS" if os.uname().sysname == "Darwin" else os.uname().sysname
         base = f"{system}; the bash tool runs {'bash' if kind == 'bash' else 'sh'}"
-    return f"{base}; Python: {python_command(kind)}"
+    line = f"{base}; Python: {python_command(kind)}"
+    return "".join(c if c.isprintable() else "?" for c in line)   # one line, whatever the path
 
 
 def command_line(cmd: str) -> list:
