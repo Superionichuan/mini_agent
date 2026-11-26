@@ -16,7 +16,7 @@
 #   MINI_AGENT_NO_SETUP  1 = do not start `mini_agent setup` at the end
 set -eu
 
-VERSION="2.0.0"
+VERSION="2.0.1"
 REPO="Superionichuan/mini_agent"
 WHEEL_URL="https://github.com/$REPO/releases/download/v$VERSION/mini_agent-$VERSION-py3-none-any.whl"
 SPEC="${MINI_AGENT_SPEC:-mini_agent[ui] @ $WHEEL_URL}"

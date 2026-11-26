@@ -18,7 +18,7 @@
 # a failure stops it with an error message instead.
 
 & {
-    $Version = '2.0.0'
+    $Version = '2.0.1'
     $Repo = 'Superionichuan/mini_agent'
     $WheelUrl = "https://github.com/$Repo/releases/download/v$Version/mini_agent-$Version-py3-none-any.whl"
     $Spec = if ($env:MINI_AGENT_SPEC) { $env:MINI_AGENT_SPEC } else { "mini_agent[ui] @ $WheelUrl" }
