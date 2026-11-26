@@ -115,6 +115,10 @@ def test_mark_message_names_session_and_seq(tmp_path):
 def test_interactive_foreign_key_is_a_message(monkeypatch, capsys, args):
     monkeypatch.setattr(cli, "setup_problem", lambda: "")
     monkeypatch.setenv("LLM_API_KEY", "sk-or-v1-OPENROUTER-ONLY-TEST-KEY")
+    # main() writes --backend and --model into this process's environment; set them through
+    # monkeypatch first, so that they are removed again after the test
+    monkeypatch.setenv("LLM_BACKEND", "openai")
+    monkeypatch.setenv("LLM_MODEL", "m")
     assert cli.main(args) == 2
     assert "not sent to OpenAI" in capsys.readouterr().err
 
