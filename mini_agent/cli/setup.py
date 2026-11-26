@@ -220,5 +220,7 @@ def _setup(args) -> int:
         return 1
     shown = ", ".join(f"{k}={mask(v) if k.endswith('_KEY') else v}" for k, v in values.items())
     print(f"Saved to {where}: {shown}")
-    print('Try it:  mini_agent "What is 2**10?"      Check:  mini_agent doctor')
+    # offline mode replays the recorded tutorial tasks only, so suggest one of those
+    trial = "Compute 3**7." if provider == "offline" else "What is 2**10?"
+    print(f'Try it:  mini_agent "{trial}"      Check:  mini_agent doctor')
     return 0
