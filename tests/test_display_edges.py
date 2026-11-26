@@ -11,7 +11,7 @@ from mini_agent.core.agent.run import run_agent
 from mini_agent.core.parser import parse_response
 from mini_agent.ui.common import call_args_text, thought_text
 
-BAR = "｜"     # the fullwidth bar of DeepSeek's tool-call markup
+BAR = "\uff5c"     # the fullwidth bar of DeepSeek's tool-call markup
 BREAKS = "\n\r\x0b\x0c\x1c\x1d\x1e\x85  "
 
 
