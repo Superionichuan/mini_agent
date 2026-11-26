@@ -121,11 +121,17 @@ class OfflineLLM(BaseLLM):
         best = max((sc for sc, _ in scored), default=0)
         if best < 0.5:
             return None
-        noted = self.__dict__.setdefault("_noted", set())   # tasks already told, this object
+        noted = self.__dict__.setdefault("_noted", set())   # tasks already told in this run
         if q["goal"] not in noted:             # say it once per task, not at every step
             noted.add(q["goal"])
             print(NEAR_MATCH.format(score=best), file=sys.stderr)
         return self._next("fallback:" + q["key"], [r for sc, r in scored if sc == best])
+
+    def reset_usage(self):
+        """At the start of each run: the token counters, and the near-match notice, which is
+        given once per task in each run (a run's output needs it, a continued run's too)."""
+        super().reset_usage()
+        self.__dict__.pop("_noted", None)
 
     def call(self, prompt: str) -> str:
         rec = self._match(prompt)

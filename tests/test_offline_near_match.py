@@ -32,3 +32,30 @@ def test_near_match_is_announced_once_per_task(tmp_path, capsys):
     assert capsys.readouterr().err == ""          # once per task, not every step
     OfflineLLM(recording(tmp_path)).call(CHANGED)  # a new model object tells again
     assert "not recorded" in capsys.readouterr().err
+
+
+def test_each_run_of_the_same_task_is_told_again(tmp_path, capsys):
+    """Once per run: the same Agent running the same task again gets the notice again, since
+    that run's output needs it too."""
+    from mini_agent import Agent
+    from mini_agent.llm.base import BaseLLM
+
+    done = json.dumps({"action": "done", "args": {"answer": "finished"}})
+
+    class Recorder(BaseLLM):
+        def __init__(self):
+            self.rows = []
+
+        def call(self, prompt):
+            self.rows.append(dict(describe(prompt), response=done))
+            return done
+
+    recorder = Recorder()
+    Agent(llm=recorder, workspace=tmp_path, skills=[], use_memory=False).run("a task", verbose=False)
+    path = tmp_path / "rec.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in recorder.rows), encoding="utf-8")
+    agent = Agent(llm=OfflineLLM(path), workspace=tmp_path, skills=[], use_memory=False)
+    agent.tool_desc += "\nChanged tool instructions."
+    for _ in range(2):
+        assert agent.run("a task", verbose=False) == "finished"
+        assert "closest recorded step" in capsys.readouterr().err
