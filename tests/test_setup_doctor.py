@@ -213,13 +213,14 @@ def test_system_line_names_the_shell():
 
 def test_python_command_prefers_python3_on_posix(monkeypatch):
     monkeypatch.setattr(shell_mod, "WINDOWS", False)
+    monkeypatch.setattr(shell_mod.sys, "executable", "/opt/py 3/bin/python3")  # a POSIX path, on any OS
     on_path = {"python3": "/usr/bin/python3", "python": "/usr/bin/python"}
     monkeypatch.setattr(shell_mod.shutil, "which", lambda n: on_path.get(n))
     assert shell_mod.python_command("bash") == "python3"
     on_path.pop("python3")
     assert shell_mod.python_command("bash") == "python"
     on_path.clear()
-    assert shell_mod.python_command("bash") == shlex.quote(shell_mod.sys.executable.replace("\\", "/"))
+    assert shell_mod.python_command("bash") == shlex.quote("/opt/py 3/bin/python3")
 
 
 def test_python_command_skips_the_store_placeholder_on_windows(monkeypatch):

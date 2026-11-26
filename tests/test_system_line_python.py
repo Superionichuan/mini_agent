@@ -3,6 +3,7 @@ line stays one line, so that offline replay keeps dropping it before matching.""
 import importlib
 import os
 import subprocess
+import types
 
 import pytest
 
@@ -15,6 +16,9 @@ def no_python_on_path(monkeypatch, executable):
     monkeypatch.setattr(shellmod, "WINDOWS", False)
     monkeypatch.setattr(shellmod.shutil, "which", lambda name: None)
     monkeypatch.setattr(shellmod.sys, "executable", str(executable))
+    if not hasattr(os, "uname"):         # the POSIX branch, simulated on Windows, names the system
+        monkeypatch.setattr(os, "uname", lambda: types.SimpleNamespace(sysname="Linux"),
+                            raising=False)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="a POSIX shell runs the command")

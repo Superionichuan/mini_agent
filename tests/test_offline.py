@@ -54,7 +54,7 @@ def test_record_then_replay_identical():
 def test_recording_stores_no_full_prompt():
     path = os.path.join(tempfile.mkdtemp(), "rec.jsonl")
     record(path, "/tmp/ws_private_path")
-    raw = open(path).read()
+    raw = open(path, encoding="utf-8").read()
     assert "ws_private_path" not in raw and "[Tools]" not in raw
     rows = [json.loads(x) for x in raw.splitlines()]
     assert set(rows[0]) >= {"key", "goal", "steps", "history", "response"}
@@ -71,10 +71,10 @@ def test_normalize_masks_machine_and_day():
 def test_fallback_on_small_history_difference():
     path = os.path.join(tempfile.mkdtemp(), "rec.jsonl")
     record(path, "/tmp/ws")
-    rows = [json.loads(x) for x in open(path)]
+    rows = [json.loads(x) for x in open(path, encoding="utf-8")]
     for r in rows:                      # simulate a slightly different tool output
         r["key"] = "0" * 24
-    open(path, "w").write("".join(json.dumps(r) + "\n" for r in rows))
+    open(path, "w", encoding="utf-8").write("".join(json.dumps(r) + "\n" for r in rows))
     ans, _, _ = replay(path, "/tmp/ws")
     assert ans == "817261"
 
