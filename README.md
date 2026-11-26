@@ -167,8 +167,12 @@ again later"); a continue that completes a step starts the count again.
 
 Ctrl+C, a service stop (SIGTERM) or closing the terminal also stops the tool the agent is
 running. On macOS and Linux the tool's command gets the same signal first (SIGINT for
-Ctrl+C) and 2 s to clean up; whatever is still running then is killed. On Windows the
-command is ended at once. A process killed outright (`kill -9`, out of memory,
+Ctrl+C) and 2 s to clean up; whatever is still running then is killed, and a second Ctrl+C
+kills it at once. With `--keep-alive`, a SIGTERM sent to mini_agent itself is passed on to
+the running task about 3 s later, so the tool is gone at most about 5 s after it: after a
+Ctrl+C in a terminal the task already has the signal, and passing it on at once would count
+as a second stop and kill the tool before it cleans up. On Windows the command is ended at
+once. A process killed outright (`kill -9`, out of memory,
 `taskkill /F`) cannot do that: a command its tool had started may still finish. When the
 task continues, that call is not run again; the model is told it was cut off.
 
