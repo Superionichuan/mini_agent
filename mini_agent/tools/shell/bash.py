@@ -136,37 +136,98 @@ def run_tool(argv: list, timeout: float) -> Tuple[bytes, bytes]:
     try:
         return proc.communicate(timeout=timeout)
     except BaseException as cause:
-        late_stop = stop_tree(proc)
+        late_stop = stop_tree(proc, cause)
         if late_stop is not None and not isinstance(cause, KeyboardInterrupt):
             raise late_stop        # a stop that came while the timed-out command was cleaned up
         raise
 
 
-def stop_tree(proc: subprocess.Popen) -> Optional[KeyboardInterrupt]:
+GRACE = 2.0     # seconds a stopped command has to clean up before it is killed (POSIX)
+
+
+def stop_tree(proc: subprocess.Popen,
+              cause: Optional[BaseException] = None) -> Optional[KeyboardInterrupt]:
     """Stop a tool's command and what it started (its process group; on Windows its process
-    tree), then reap it. A stop (Ctrl+C or a stop signal) that comes while waiting for the
-    command's pipes to close is returned, so that the caller can raise it once the command is
-    gone."""
+    tree), then reap it.
+
+    POSIX: the group first gets the signal that matches the cause (SIGINT for Ctrl+C, the stop
+    signal itself for SIGTERM or SIGHUP, SIGTERM for the timeout), so that a program can clean
+    up (git removes its lock file, for example); whatever still runs after GRACE seconds is
+    killed. Windows: the tree is killed at once.
+
+    A stop (Ctrl+C or a stop signal) that comes meanwhile ends the wait at once and is
+    returned, so that the caller can raise it once the command is gone."""
+    stop = None
     if WINDOWS:          # before the parent dies: taskkill /T follows the parent links
-        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], stdin=subprocess.DEVNULL,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stop = _taskkill_tree(proc.pid)
     else:
         import signal
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        if hasattr(cause, "signum"):                   # SIGTERM, SIGHUP (StopSignal)
+            first = cause.signum
+        elif isinstance(cause, KeyboardInterrupt):
+            first = signal.SIGINT
+        else:                                          # the timeout, or any other error
+            first = signal.SIGTERM
+        if _signal_group(proc.pid, first):
+            stop = _wait_for_group(proc, GRACE)
+        _signal_group(proc.pid, signal.SIGKILL)
     try:
         proc.kill()
     except OSError:
         pass
     try:
         proc.communicate(timeout=5)      # the pipes close once the processes are gone
-    except KeyboardInterrupt as stop:    # StopSignal included
-        return stop
+    except KeyboardInterrupt as e:       # StopSignal included
+        stop = stop or e
+    except BaseException:
+        pass
+    return stop
+
+
+def _signal_group(pgid: int, sig: int) -> bool:
+    """Send sig to the process group; False when no process of it is left to signal."""
+    try:
+        os.killpg(pgid, sig)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def _wait_for_group(proc: subprocess.Popen, seconds: float) -> Optional[KeyboardInterrupt]:
+    """Wait until every process of the command's group has ended, at most `seconds`, reading
+    its output meanwhile so that a full pipe does not hold it up. A Ctrl+C or stop signal
+    ends the wait at once and is returned."""
+    import time
+    end = time.monotonic() + seconds
+    try:
+        proc.communicate(timeout=seconds)            # the command itself ends, its pipes close
+        while time.monotonic() < end and _signal_group(proc.pid, 0):
+            time.sleep(0.05)                         # processes it started, writing elsewhere
+    except KeyboardInterrupt as e:                   # Ctrl+C, StopSignal
+        return e
     except BaseException:
         pass
     return None
+
+
+def _taskkill_tree(pid: int) -> Optional[KeyboardInterrupt]:
+    """Kill a process tree on Windows. taskkill runs in a process group of its own, so that a
+    second Ctrl+C on the console does not reach it, and it is waited for even when that Ctrl+C
+    reaches this process (the Ctrl+C is returned instead)."""
+    stop = None
+    killer = subprocess.Popen(["taskkill", "/F", "/T", "/PID", str(pid)],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL,
+                              creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+    for _ in range(3):
+        try:
+            killer.wait(timeout=30)
+            break
+        except KeyboardInterrupt as e:
+            stop = stop or e
+        except subprocess.TimeoutExpired:
+            break
+    return stop
 
 
 def bash(cmd: str) -> str:
